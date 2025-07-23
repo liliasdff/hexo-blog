@@ -1,0 +1,38 @@
+---
+- name: Quick Blog Update
+  hosts: webservers
+  become: yes
+  vars:
+    blog_user: "{{ ansible_user }}"
+    
+  tasks:
+    - name: Pull latest changes
+      git:
+        repo: "{{ blog_repo_url }}"
+        dest: "{{ blog_local_path }}"
+        version: main
+        force: yes
+      become_user: "{{ blog_user }}"
+
+    - name: Install/update dependencies
+      npm:
+        path: "{{ blog_local_path }}"
+        state: present
+      become_user: "{{ blog_user }}"
+
+    - name: Clean previous build
+      command: hexo clean
+      args:
+        chdir: "{{ blog_local_path }}"
+      become_user: "{{ blog_user }}"
+
+    - name: Generate new static files
+      command: hexo generate
+      args:
+        chdir: "{{ blog_local_path }}"
+      become_user: "{{ blog_user }}"
+
+    - name: Reload Nginx
+      service:
+        name: nginx
+        state: reloaded

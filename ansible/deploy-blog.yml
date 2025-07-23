@@ -1,0 +1,84 @@
+---
+- name: Deploy Hexo Blog
+  hosts: webservers
+  become: yes
+  vars:
+    node_version: "18"
+    blog_user: "{{ ansible_user }}"
+    
+  tasks:
+    - name: Update package cache
+      apt:
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Install required packages
+      apt:
+        name:
+          - git
+          - nginx
+          - curl
+          - build-essential
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Install Node.js
+      shell: |
+        curl -fsSL https://deb.nodesource.com/setup_{{ node_version }}.x | sudo -E bash -
+        apt-get install -y nodejs
+      args:
+        creates: /usr/bin/node
+
+    - name: Install Hexo CLI globally
+      npm:
+        name: hexo-cli
+        global: yes
+        state: present
+
+    - name: Create blog directory
+      file:
+        path: "{{ blog_local_path }}"
+        state: directory
+        owner: "{{ blog_user }}"
+        group: "{{ blog_user }}"
+        mode: '0755'
+
+    - name: Clone or update blog repository
+      git:
+        repo: "{{ blog_repo_url }}"
+        dest: "{{ blog_local_path }}"
+        version: main
+        force: yes
+      become_user: "{{ blog_user }}"
+
+    - name: Install npm dependencies
+      npm:
+        path: "{{ blog_local_path }}"
+        state: present
+      become_user: "{{ blog_user }}"
+
+    - name: Generate static files
+      command: hexo generate
+      args:
+        chdir: "{{ blog_local_path }}"
+      become_user: "{{ blog_user }}"
+
+    - name: Configure Nginx site
+      template:
+        src: nginx-site.conf.j2
+        dest: "{{ nginx_site_path }}"
+        backup: yes
+      notify: reload nginx
+
+    - name: Enable Nginx site
+      file:
+        src: "{{ nginx_site_path }}"
+        dest: "{{ nginx_site_enabled }}"
+        state: link
+      notify: reload nginx
+
+  handlers:
+    - name: reload nginx
+      service:
+        name: nginx
+        state: reloaded
